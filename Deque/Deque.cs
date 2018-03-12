@@ -2,28 +2,37 @@
 using System.Collections;
 using System.Collections.Generic;
 
+
+
 namespace Deque
 {
-	class Deque<T> : IDeque<T>, IList<T>
+
+
+	public class Deque<T> : IDeque<T>, IList<T>
 	{
 		private const int ChunkSize = 8;
 		private const int DefaultCapacity = 7;
 		private const float CapacityMultiplier = 1.5F;
 
-		private T[][] elems_;
-		private DequeIndex begin_;
-		private DequeIndex end_;
+		private T[][] _elems;
 
-		// TODO "begin and end" variables (indices)
+		/* the deque is indexed as if all chunks formed an uniform array; chunk number/inner chunk indices are obtained by division/modulo */
+		private int _beginIndex;	//points to the first element (its index)
+		private int _endIndex;		//points just after the last element
 
-		public Deque()
+		internal ulong Version { get; private set; }
+
+		/// <summary>
+		/// Constructs a deque with default initial capacity.
+		/// </summary>
+		public Deque() : this(DefaultCapacity)
 		{
-			elems_ = new T[DefaultCapacity][];
-			elems_[DefaultCapacity / 2] = new T[ChunkSize];
-			begin_ = new DequeIndex(DefaultCapacity / 2, 0);
-			end_ = begin_;
 		}
 
+		/// <summary>
+		/// Construct a deque by adding the elements of the enumeration.
+		/// </summary>
+		/// <param name="en">IEnumerable which represents the elements which will be added to the deque.</param>
 		public Deque(IEnumerable<T> en) : this()
 		{
 			foreach (T elem in en)
@@ -32,28 +41,22 @@ namespace Deque
 			}
 		}
 
+		/// <summary>
+		/// Inicializes a deque with given initial capacity. The capacity is distributed evenly to both sides of the deque
+		/// as to provide room for both PushBack() and PushFront()
+		/// </summary>
+		/// <param name="capacity">Initial capacity.</param>
 		public Deque(int capacity)
 		{
-			if (capacity <= 0)
-			{
-				throw new ArgumentException("Capacity must be a positive integer!");
-			}
-
-			int mapSize = (int)Math.Ceiling((float)capacity / ChunkSize);
-			elems_ = new T[mapSize][];
-			for (int i = 0; i < elems_.Length; ++i)
-			{
-				elems_[i] = new T[ChunkSize];
-			}
-
-			begin_ = new DequeIndex(mapSize / 2, 0);
-			end_ = begin_;
+			_elems = new T[capacity][];
+			_beginIndex = ChunkSize * capacity / 2;
+			_endIndex = _beginIndex;
 		}
 
 
 		public IEnumerator<T> GetEnumerator()
 		{
-			throw new NotImplementedException();
+			return new Enumerator(this);
 		}
 
 		IEnumerator IEnumerable.GetEnumerator()
@@ -63,174 +66,325 @@ namespace Deque
 
 		public void Add(T item)
 		{
-			throw new NotImplementedException();
+			++Version;
+			PushBack(item);
 		}
 
 		public void Clear()
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			for (int i = 0; i < Count; ++i)
+			{
+				this[i] = default(T);
+			}
+			_beginIndex = _elems.Length / 2 * ChunkSize;		//begin and end indices point now to the middle
+			_endIndex = _beginIndex;
 		}
 
 		public bool Contains(T item)
 		{
-			throw new NotImplementedException();
+			return IndexOf(item) >= 0;
 		}
 
 		public void CopyTo(T[] array, int arrayIndex)
 		{
-			throw new NotImplementedException();
+			for (int i = 0; i < Count; ++i)
+			{
+				array[arrayIndex + i] = this[i];
+			}
 		}
 
 		public bool Remove(T item)
 		{
-			throw new NotImplementedException();
-		}
-
-		public int Count
-		{
-			get
+			int index = IndexOf(item);
+			if (index < 0)
 			{
-
+				++Version;	 //version is also incremented in RemoveAt()
+				return false;
 			}
+
+			RemoveAt(index);
+			return true;
 		}
+
+		public int Count => _endIndex - _beginIndex;
 		public bool IsReadOnly => false;
+
 		public int IndexOf(T item)
 		{
-			throw new NotImplementedException();
+			for (int i = 0; i < Count; ++i)
+			{
+				if (Equals(this[i], item))
+				{
+					return i;
+				}
+			}
+			return -1;
 		}
 
 		public void Insert(int index, T item)
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			if (index < 0 || index > Count)
+			{
+				throw new ArgumentOutOfRangeException();
+			}
+
+			//only the smaller part of the deque needs to be moved
+			T temp;
+			if (index > Count / 2)
+			{
+				for (int i = index; i < Count; ++i)
+				{
+					temp = this[i];
+					this[i] = item;
+					item = temp;
+				}
+				PushBack(item);
+			}
+			else
+			{
+				for (int i = index - 1; i >= 0; --i)
+				{
+					temp = this[i];
+					this[i] = item;
+					item = temp;
+				}
+				PushFront(item);
+			}
 		}
 
 		public void RemoveAt(int index)
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			if (index < 0 || index >= Count)
+			{
+				throw new ArgumentOutOfRangeException();
+			}
+
+			//only the smaller part of the deque needs to be moved
+			if (index > Count / 2)
+			{
+				for (int i = index; i < Count - 1; ++i)
+				{
+					this[i] = this[i + 1];
+				}
+				this[Count - 1] = default(T);
+				--_endIndex;
+			}
+			else
+			{
+				for (int i = index; i > 0; --i)
+				{
+					this[i] = this[i - 1];
+				}
+				this[0] = default(T);
+				++_beginIndex;
+			}
 		}
 
 		public T this[int index]
 		{
-			get => throw new NotImplementedException();
-			set => throw new NotImplementedException();
+			get
+			{
+				if (index < 0 || index > Count)
+				{
+					throw new ArgumentOutOfRangeException();
+				}
+
+				int arrIndex = _beginIndex + index;
+				return _elems[arrIndex / ChunkSize][arrIndex % ChunkSize];   //converts absolute indices to chunk and inner indices
+			}
+			set
+			{
+				++Version;
+				if (index < 0 || index > Count)
+				{
+					throw new ArgumentOutOfRangeException();
+				}
+
+				int arrIndex = _beginIndex + index;
+				_elems[arrIndex / ChunkSize][arrIndex % ChunkSize] = value;
+			}
 		}
 
-		public void PushBack(T element)
+		public void PushBack(T item)
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			//the deque needs more space on the right
+			if (_endIndex / ChunkSize >= _elems.Length)
+			{
+				ExtendRight();
+			}
+
+			//indices !!!need to be computed here, as ExtendRight might change chunk indices.
+			int endChunk = _endIndex / ChunkSize;
+			int endInner = _endIndex % ChunkSize;
+
+			if (_elems[endChunk] == null)
+			{
+				_elems[endChunk] = new T[ChunkSize];
+			}
+
+			_elems[endChunk][endInner] = item;
+			++_endIndex;
 		}
 
-		public void PushFront(T elem)
+		public void PushFront(T item)
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			//the deque needs more space on the left
+			if (_beginIndex == 0)
+			{
+				ExtendLeft();
+			}
+
+			//indices !!!need to be computed here, as ExtendLeft will change chunk indices.
+			int beginChunk = (_beginIndex - 1) / ChunkSize;
+			int beginInner = (_beginIndex - 1) % ChunkSize;
+
+			if (_elems[beginChunk] == null)
+			{
+				_elems[beginChunk] = new T[ChunkSize];
+			}
+
+			_elems[beginChunk][beginInner] = item;
+			--_beginIndex;
 		}
 
 		public void PopBack()
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			if (Count == 0)
+			{
+				throw new InvalidOperationException("Deque is empty.");
+			}
+
+			int endChunk = (_endIndex - 1) / ChunkSize;
+			int endInner = (_endIndex - 1) % ChunkSize;
+
+			_elems[endChunk][endInner] = default(T);
+			--_endIndex;
 		}
 
 		public void PopFront()
 		{
-			throw new NotImplementedException();
+			++Version;
+
+			if (Count == 0)
+			{
+				throw new InvalidOperationException("Deque is empty.");
+			}
+
+			int beginChunk = _beginIndex / ChunkSize;
+			int beginInner = _beginIndex % ChunkSize;
+
+			_elems[beginChunk][beginInner] = default(T);
+			++_beginIndex;
 		}
 
-		private void IncreaseCapacity()
+		public IDeque<T> GetReverseView()
 		{
-			T[][] nextArr = new T[(int)(elems_.Length * CapacityMultiplier)][];
-
-			int nextBegin = nextArr.Length / 2 - ChunkCount / 2;
-			for (int i = begin_.ChunkIndex; i < end_.ChunkIndex; ++i)
-			{
-				nextArr[nextBegin + i - begin_.ChunkIndex] = elems_[i];
-			}
-
-			end_ = new DequeIndex(end_.ChunkIndex - begin_.ChunkIndex + nextBegin, end_.InnerIndex);
-			begin_ = new DequeIndex(nextBegin, begin_.InnerIndex);
-
-			elems_ = nextArr;
+			return new ReverseDeque<T>(this);
 		}
 
-		private int ChunkCount => end_.ChunkIndex - begin_.ChunkIndex;
-
-		private int ConvertIndex(DequeIndex deqIndex)
+		private void ExtendRight()
 		{
-			if (deqIndex < begin_)
-			{
-				throw new ArgumentException("Argument is not a valid index in the deque.");     //might return -1 instead
-			}
+			++Version;
 
-			if (deqIndex.ChunkIndex == begin_.ChunkIndex)
-			{
-				return deqIndex.InnerIndex - begin_.InnerIndex;
-			}
+			//Ceiling is necessary, because for smaller capacities the sizeup would be too small (or none at all)
+			int nextSize = (int)Math.Ceiling(_elems.Length * CapacityMultiplier);
+			T[][] nextArr = new T[nextSize][];
 
-			int edges = ChunkSize - begin_.InnerIndex + deqIndex.InnerIndex + 1;                //one is added to fix zero indexing shift
-			int between = ChunkSize * (deqIndex.ChunkIndex - begin_.ChunkIndex - 1);
 
-			return edges + between;
+			int beginChunk = _beginIndex / ChunkSize;
+			int endChunk = _endIndex / ChunkSize;
+			endChunk = _endIndex % ChunkSize == 0
+				? endChunk - 1
+				: endChunk; //end might point out of array bounds, but it could be also in the middle of a chunk
+
+			//the old chunks are copied to the same offset from the start as they were positioned in the old array
+			Array.Copy(_elems, beginChunk, nextArr, beginChunk, endChunk - beginChunk + 1);
+
+			_elems = nextArr;
 		}
 
-		private DequeIndex ConvertIndex(int index)
+		private void ExtendLeft()
 		{
-			if (index < 0)
-			{
-				throw new ArgumentException("Index cannot be a negative number.");
-			}
+			++Version;
 
-			if (index < ChunkSize - begin_.InnerIndex)
-			{
-				return new DequeIndex(begin_.ChunkIndex, begin_.InnerIndex + index);
-			}
+			//Ceiling is necessary, because for smaller capacities the sizeup would be too small (or none at all)
+			int nextSize = (int)Math.Ceiling(_elems.Length * CapacityMultiplier);
+			T[][] nextArr = new T[nextSize][];
 
-			index -= ChunkSize - begin_.InnerIndex;
-			int chunks = index / ChunkSize;
-			int inner = index % ChunkSize;
+			int beginChunk = _beginIndex / ChunkSize;
+			int endChunk = _endIndex / ChunkSize;
 
-			return new DequeIndex(chunks, inner);
+			//the chunks maintain the offset from the end of the array
+			Array.Copy(_elems, beginChunk, nextArr, nextArr.Length - _elems.Length + beginChunk, endChunk - beginChunk + 1);
+
+			_beginIndex += (nextArr.Length - _elems.Length) * ChunkSize; //begin and end indices have been moved to the right by extension size
+			_endIndex += (nextArr.Length - _elems.Length) * ChunkSize;
+
+			_elems = nextArr;
 		}
 
-		private struct DequeIndex : IComparable<DequeIndex>
+		private class Enumerator : IEnumerator<T>
 		{
-			public int ChunkIndex { get; }
-			public int InnerIndex { get; }
+			private int _index;
+			private readonly Deque<T> _deque;
 
-			public DequeIndex(int chunk, int inner)
+			private readonly ulong _version;	//version number of the deque at enumerator construction time
+
+			public Enumerator(Deque<T> deque)
 			{
-				ChunkIndex = chunk;
-				InnerIndex = inner;
+				_deque = deque;
+				_index = -1;
+				_version = deque.Version;
 			}
 
-			public int CompareTo(DequeIndex other)
+			public void Dispose()
 			{
-				int chunkComparison = ChunkIndex.CompareTo(other.ChunkIndex);
-				if (chunkComparison != 0)
+			}
+
+			public bool MoveNext()
+			{
+				//modifications are not allowed while enumerating
+				if (_version != _deque.Version)
 				{
-					return chunkComparison;
+					throw new InvalidOperationException();
 				}
 
-				return InnerIndex.CompareTo(other.InnerIndex);
+				++_index;
+				return _index < _deque.Count;
 			}
 
-			public static bool operator <(DequeIndex left, DequeIndex right)
+			public void Reset()
 			{
-				return left.CompareTo(right) < 0;
+				throw new NotSupportedException();
 			}
 
-			public static bool operator >(DequeIndex left, DequeIndex right)
+			public T Current
 			{
-				return left.CompareTo(right) > 0;
+				get
+				{
+					//modifications are not allowed while enumerating
+					if (_version != _deque.Version || _index == -1 || _index >= _deque.Count)
+					{
+						throw new InvalidOperationException();
+					}
+					return _deque[_index];
+				}
 			}
 
-			public static bool operator <=(DequeIndex left, DequeIndex right)
-			{
-				return left.CompareTo(right) <= 0;
-			}
-
-			public static bool operator >=(DequeIndex left, DequeIndex right)
-			{
-				return left.CompareTo(right) >= 0;
-			}
+			object IEnumerator.Current => Current;
 		}
 	}
+
 }

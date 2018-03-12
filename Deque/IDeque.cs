@@ -1,26 +1,30 @@
 ﻿using System.Collections.Generic;
 
-namespace Deque
+public interface IDeque<T> : ICollection<T>
 {
-	interface IDeque<T> : IEnumerable<T>
-	{
-		/// <summary>
-		/// Pushes a new element to the end of the queue.
-		/// </summary>
-		/// <param name="element">Element to be pushed.</param>
-		void PushBack(T element);
-		/// <summary>
-		/// Pushes a new element to the beginning of the queue.
-		/// </summary>
-		/// <param name="element">Element to be pushed</param>
-		void PushFront(T element);
-		/// <summary>
-		/// Pops the last element of the queue.
-		/// </summary>
-		void PopBack();
-		/// <summary>
-		/// Pops the first element of the queue
-		/// </summary>
-		void PopFront();
-	}
+	/// <summary>
+	/// Pushes a new item to the end of the queue.
+	/// </summary>
+	/// <param name="item">Element to be pushed.</param>
+	void PushBack(T item);
+	/// <summary>
+	/// Pushes a new item to the beginning of the queue.
+	/// </summary>
+	/// <param name="item">Element to be pushed</param>
+	void PushFront(T item);
+	/// <summary>
+	/// Pops the last item of the queue.
+	/// </summary>
+	void PopBack();
+	/// <summary>
+	/// Pops the first item of the queue
+	/// </summary>
+	void PopFront();
+
+	/// <summary>
+	/// Provides the same deque with reversed front and back view.
+	/// </summary>
+	/// <returns>Reversed Deque</returns>
+	IDeque<T> GetReverseView();
 }
+
